@@ -3,20 +3,24 @@ import streamlit as st
 import base64
 from openai import OpenAI
 
+# ---------------- FUNCIONES ----------------
+def encode_image(image_file):
+    return base64.b64encode(image_file.getvalue()).decode("utf-8")
+
 # ---------------- CONFIG ----------------
 st.set_page_config(
-    page_title="Análisis de Imagen IA",
+    page_title="Análisis de Imagen",
     page_icon="🤖",
     layout="centered"
 )
 
-# ---------------- ESTILO ----------------
+# ---------------- ESTILOS ----------------
 st.markdown("""
 <style>
-.big-title {
-    font-size: 38px;
-    font-weight: bold;
+.title {
     text-align: center;
+    font-size: 42px;
+    font-weight: bold;
 }
 .subtitle {
     text-align: center;
@@ -24,43 +28,40 @@ st.markdown("""
     margin-bottom: 20px;
 }
 .stButton>button {
-    border-radius: 12px;
-    background: linear-gradient(90deg, #6C63FF, #4CAF50);
+    background-color: #6C63FF;
     color: white;
-    font-weight: bold;
+    border-radius: 12px;
     padding: 10px 20px;
+    font-weight: bold;
 }
 </style>
 """, unsafe_allow_html=True)
 
 # ---------------- HEADER ----------------
-st.markdown('<p class="big-title">🤖 Análisis Inteligente de Imágenes</p>', unsafe_allow_html=True)
-st.markdown('<p class="subtitle">Sube una imagen y deja que la IA la interprete por ti 🧠✨</p>', unsafe_allow_html=True)
+st.markdown('<p class="title">🤖 Análisis de Imagen</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Sube una imagen y descubre lo que la IA puede interpretar 🧠</p>', unsafe_allow_html=True)
 
-# ---------------- API KEY (OCULTA) ----------------
-try:
-    api_key = st.secrets["OPENAI_API_KEY"]
-except:
-    st.error("⚠️ Falta configurar la API Key en secrets.toml")
-    st.stop()
+# ---------------- API KEY ----------------
+api_key = st.text_input("🔑 Ingresa tu API Key de OpenAI", type="password")
 
-client = OpenAI(api_key=api_key)
+client = None
+if api_key:
+    client = OpenAI(api_key=api_key)
 
-# ---------------- FUNCION ----------------
-def encode_image(image_file):
-    return base64.b64encode(image_file.getvalue()).decode("utf-8")
+# ---------------- SUBIDA ----------------
+st.markdown("### 📂 Cargar imagen")
+uploaded_file = st.file_uploader("Elige una imagen", type=["jpg", "png", "jpeg"])
 
-# ---------------- UPLOAD ----------------
-uploaded_file = st.file_uploader("📸 Sube tu imagen", type=["jpg", "png", "jpeg"])
-
+# ---------------- MOSTRAR IMAGEN ----------------
 if uploaded_file:
     st.image(uploaded_file, caption="🖼️ Imagen cargada", use_container_width=True)
 
 # ---------------- OPCIONES ----------------
 st.markdown("### ⚙️ Opciones")
 
-show_details = st.toggle("🧠 Quiero hacer una pregunta específica", value=False)
+show_details = st.checkbox("✍️ Quiero hacer una pregunta específica sobre la imagen")
 
+additional_details = ""
 if show_details:
     additional_details = st.text_area(
         "💬 Escribe tu pregunta o contexto:",
@@ -68,57 +69,64 @@ if show_details:
     )
 
 # ---------------- BOTÓN ----------------
+st.markdown(" ")
 analyze_button = st.button("🚀 Analizar imagen")
 
 # ---------------- PROCESO ----------------
-if uploaded_file and analyze_button:
+if analyze_button:
 
-    with st.spinner("🔍 Analizando imagen..."):
-        base64_image = encode_image(uploaded_file)
+    if not uploaded_file:
+        st.warning("⚠️ Sube una imagen primero")
+    
+    elif not api_key:
+        st.warning("⚠️ Ingresa tu API Key")
+    
+    else:
+        with st.spinner("🧠 Analizando imagen..."):
 
-        prompt_text = "Describe detalladamente esta imagen en español de forma clara y natural."
+            base64_image = encode_image(uploaded_file)
 
-        if show_details and additional_details:
-            prompt_text += f"\n\nContexto del usuario:\n{additional_details}"
+            prompt_text = "Describe detalladamente lo que ves en la imagen en español."
 
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt_text},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    },
-                ],
-            }
-        ]
+            if show_details and additional_details:
+                prompt_text += f"\n\nContexto del usuario:\n{additional_details}"
 
-        try:
-            full_response = ""
-            placeholder = st.empty()
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        },
+                    ],
+                }
+            ]
 
-            for completion in client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                max_tokens=1200,
-                stream=True
-            ):
-                if completion.choices[0].delta.content:
-                    full_response += completion.choices[0].delta.content
-                    placeholder.markdown("🤖 " + full_response + "▌")
+            try:
+                full_response = ""
+                placeholder = st.empty()
 
-            placeholder.markdown("🤖 " + full_response)
+                for chunk in client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    max_tokens=1200,
+                    stream=True
+                ):
+                    if chunk.choices[0].delta.content:
+                        full_response += chunk.choices[0].delta.content
+                        placeholder.markdown(full_response + "▌")
 
-        except Exception as e:
-            st.error(f"❌ Error: {e}")
+                placeholder.markdown(full_response)
 
-# ---------------- MENSAJES ----------------
-elif analyze_button and not uploaded_file:
-    st.warning("⚠️ Primero sube una imagen")
+                st.success("✅ Análisis completado")
+
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
 
 # ---------------- FOOTER ----------------
 st.markdown("---")
-st.caption("✨ Proyecto de visión con IA | Streamlit + OpenAI")
+st.caption("✨ Hecho con IA + Streamlit")
