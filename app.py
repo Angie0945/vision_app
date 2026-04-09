@@ -3,96 +3,130 @@ import streamlit as st
 import base64
 from openai import OpenAI
 
-# Function to encode the image to base64
+# ---------------- FUNCIONES ----------------
 def encode_image(image_file):
     return base64.b64encode(image_file.getvalue()).decode("utf-8")
 
+# ---------------- CONFIG ----------------
+st.set_page_config(
+    page_title="Análisis de Imagen",
+    page_icon="🤖",
+    layout="centered"
+)
 
-st.set_page_config(page_title="Analisis de imagen", layout="centered", initial_sidebar_state="collapsed")
-# Streamlit page setup
-st.title("Análisis de Imagen:🤖🏞️")
-ke = st.text_input('Ingresa tu Clave')
-os.environ['OPENAI_API_KEY'] = ke
+# ---------------- ESTILOS ----------------
+st.markdown("""
+<style>
+.title {
+    text-align: center;
+    font-size: 42px;
+    font-weight: bold;
+}
+.subtitle {
+    text-align: center;
+    color: gray;
+    margin-bottom: 20px;
+}
+.stButton>button {
+    background-color: #6C63FF;
+    color: white;
+    border-radius: 12px;
+    padding: 10px 20px;
+    font-weight: bold;
+}
+</style>
+""", unsafe_allow_html=True)
 
+# ---------------- HEADER ----------------
+st.markdown('<p class="title">🤖 Análisis de Imagen</p>', unsafe_allow_html=True)
+st.markdown('<p class="subtitle">Sube una imagen y descubre lo que la IA puede interpretar 🧠</p>', unsafe_allow_html=True)
 
-# Retrieve the OpenAI API Key from secrets
-api_key = os.environ['OPENAI_API_KEY']
+# ---------------- API KEY ----------------
+api_key = st.text_input("🔑 Ingresa tu API Key de OpenAI", type="password")
 
-# Initialize the OpenAI client with the API key
-client = OpenAI(api_key=api_key)
+client = None
+if api_key:
+    client = OpenAI(api_key=api_key)
 
-# File uploader allows user to add their own image
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "png", "jpeg"])
+# ---------------- SUBIDA ----------------
+st.markdown("### 📂 Cargar imagen")
+uploaded_file = st.file_uploader("Elige una imagen", type=["jpg", "png", "jpeg"])
 
+# ---------------- MOSTRAR IMAGEN ----------------
 if uploaded_file:
-    # Display the uploaded image
-    with st.expander("Image", expanded = True):
-        st.image(uploaded_file, caption=uploaded_file.name, use_container_width=True)
+    st.image(uploaded_file, caption="🖼️ Imagen cargada", use_container_width=True)
 
-# Toggle for showing additional details input
-show_details = st.toggle("Pregunta algo específico sobre la imagen", value=False)
+# ---------------- OPCIONES ----------------
+st.markdown("### ⚙️ Opciones")
 
+show_details = st.checkbox("✍️ Quiero hacer una pregunta específica sobre la imagen")
+
+additional_details = ""
 if show_details:
-    # Text input for additional details about the image, shown only if toggle is True
     additional_details = st.text_area(
-        "Adiciona contexto de la imagen aqui:",
-        disabled=not show_details
+        "💬 Escribe tu pregunta o contexto:",
+        placeholder="Ej: ¿Qué emoción transmite esta imagen?"
     )
 
-# Button to trigger the analysis
-analyze_button = st.button("Analiza la imagen", type="secondary")
+# ---------------- BOTÓN ----------------
+st.markdown(" ")
+analyze_button = st.button("🚀 Analizar imagen")
 
-# Check if an image has been uploaded, if the API key is available, and if the button has been pressed
-if uploaded_file is not None and api_key and analyze_button:
+# ---------------- PROCESO ----------------
+if analyze_button:
 
-    with st.spinner("Analizando ..."):
-        # Encode the image
-        base64_image = encode_image(uploaded_file)
+    if not uploaded_file:
+        st.warning("⚠️ Sube una imagen primero")
     
-        prompt_text = ("Describe what you see in the image in spanish")
+    elif not api_key:
+        st.warning("⚠️ Ingresa tu API Key")
     
-        if show_details and additional_details:
-            prompt_text += (
-                f"\n\nAdditional Context Provided by the User:\n{additional_details}"
-            )
-    
-        # Create the payload for the completion request - CORRECTED FORMAT
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt_text},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{base64_image}"
-                        }
-                    },
-                ],
-            }
-        ]
-    
-        # Make the request to the OpenAI API
-        try:
-            # Stream the response
-            full_response = ""
-            message_placeholder = st.empty()
-            for completion in client.chat.completions.create(
-                model="gpt-4o", messages=messages,   
-                max_tokens=1200, stream=True
-            ):
-                # Check if there is content to display
-                if completion.choices[0].delta.content is not None:
-                    full_response += completion.choices[0].delta.content
-                    message_placeholder.markdown(full_response + "▌")
-            # Final update to placeholder after the stream ends
-            message_placeholder.markdown(full_response)
-    
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
-else:
-    # Warnings for user action required
-    if not uploaded_file and analyze_button:
-        st.warning("Please upload an image.")
-    if not api_key:
-        st.warning("Por favor ingresa tu API key.")
+    else:
+        with st.spinner("🧠 Analizando imagen..."):
+
+            base64_image = encode_image(uploaded_file)
+
+            prompt_text = "Describe detalladamente lo que ves en la imagen en español."
+
+            if show_details and additional_details:
+                prompt_text += f"\n\nContexto del usuario:\n{additional_details}"
+
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt_text},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            }
+                        },
+                    ],
+                }
+            ]
+
+            try:
+                full_response = ""
+                placeholder = st.empty()
+
+                for chunk in client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=messages,
+                    max_tokens=1200,
+                    stream=True
+                ):
+                    if chunk.choices[0].delta.content:
+                        full_response += chunk.choices[0].delta.content
+                        placeholder.markdown(full_response + "▌")
+
+                placeholder.markdown(full_response)
+
+                st.success("✅ Análisis completado")
+
+            except Exception as e:
+                st.error(f"❌ Error: {e}")
+
+# ---------------- FOOTER ----------------
+st.markdown("---")
+st.caption("✨ Hecho con IA + Streamlit")
